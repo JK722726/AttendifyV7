@@ -7,6 +7,7 @@ import '../services/repository.dart';
 import 'theory_attendance_taking_screen.dart';
 import 'practical_attendance_taking_screen.dart';
 import 'attendance_history_screen.dart';
+import 'batch_settings_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final ClassModel classModel;
@@ -27,17 +28,26 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   late DateTime _selectedDateTime;
   int? _selectedBatch; // For practical subjects
   int _totalBatches = 0;
+  int _batchSize = 25; // Dynamic batch size
 
   @override
   void initState() {
     super.initState();
     _selectedDateTime = DateTime.now();
+    _loadBatchSettings();
+  }
+
+  Future<void> _loadBatchSettings() async {
+    final batchSize = await _repository.getBatchSize();
+    setState(() {
+      _batchSize = batchSize;
+    });
     _calculateBatches();
   }
 
   void _calculateBatches() {
     if (widget.subject.isPractical) {
-      _totalBatches = (widget.classModel.students.length / 25).ceil();
+      _totalBatches = (widget.classModel.students.length / _batchSize).ceil();
       _selectedBatch = 1; // Default to first batch
     }
   }
@@ -77,45 +87,27 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
-  List<StudentModel> _getBatchStudents() {
+  Future<List<StudentModel>> _getBatchStudents() async {
     if (widget.subject.isTheory || _selectedBatch == null) {
       return widget.classModel.students;
     }
 
-    // Sort students by roll number first
-    final sortedStudents = List<StudentModel>.from(widget.classModel.students);
-    sortedStudents.sort((a, b) {
-      final aRollInt = int.tryParse(a.rollNumber);
-      final bRollInt = int.tryParse(b.rollNumber);
-      if (aRollInt != null && bRollInt != null) {
-        return aRollInt.compareTo(bRollInt);
-      }
-      return a.rollNumber.compareTo(b.rollNumber);
-    });
-
-    // Calculate batch range
-    int startIndex = (_selectedBatch! - 1) * 25;
-    int endIndex = startIndex + 25;
-    if (endIndex > sortedStudents.length) {
-      endIndex = sortedStudents.length;
-    }
-
-    return sortedStudents.sublist(startIndex, endIndex);
+    return await _repository.getStudentsForBatch(widget.classModel.students, _selectedBatch!);
   }
 
-  String _getBatchRollRange() {
+  Future<String> _getBatchRollRange() async {
     if (widget.subject.isTheory || _selectedBatch == null) {
       return 'All Students';
     }
 
-    final batchStudents = _getBatchStudents();
+    final batchStudents = await _getBatchStudents();
     if (batchStudents.isEmpty) return 'No Students';
 
     return 'Roll ${batchStudents.first.rollNumber} - ${batchStudents.last.rollNumber}';
   }
 
   Future<void> _navigateToAttendanceTaking() async {
-    final batchStudents = _getBatchStudents();
+    final batchStudents = await _getBatchStudents();
 
     if (batchStudents.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -163,6 +155,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
+  Future<void> _openBatchSettings() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const BatchSettingsScreen(),
+      ),
+    );
+
+    if (result == true) {
+      // Settings were changed, reload them
+      await _loadBatchSettings();
+    }
+  }
+
   String _formatDateTime(DateTime dateTime) {
     const months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -177,8 +183,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final batchStudents = _getBatchStudents();
-
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -195,6 +199,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         actions: [
+          if (widget.subject.isPractical)
+            IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: _openBatchSettings,
+              tooltip: 'Batch Settings',
+            ),
           IconButton(
             icon: const Icon(Icons.history),
             onPressed: () {
@@ -333,11 +343,30 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Select Batch',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Select Batch',
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: _openBatchSettings,
+                                icon: Icon(Icons.settings, size: 16, color: Colors.blue),
+                                label: Text(
+                                  'Settings',
+                                  style: TextStyle(color: Colors.blue, fontSize: 12),
+                                ),
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 12),
                           Row(
@@ -346,7 +375,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  'Total $_totalBatches batches (25 students each)',
+                                  'Total $_totalBatches batches ($_batchSize students each)',
                                   style: TextStyle(
                                     color: Colors.green.shade700,
                                     fontWeight: FontWeight.w500,
@@ -390,31 +419,44 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                           ),
                           if (_selectedBatch != null) ...[
                             const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.green.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.green.shade200),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.info_outline,
-                                      color: Colors.green.shade700, size: 16),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'Batch $_selectedBatch: ${batchStudents.length} students (${_getBatchRollRange()})',
-                                      style: TextStyle(
-                                        color: Colors.green.shade700,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
+                            FutureBuilder<String>(
+                              future: _getBatchRollRange(),
+                              builder: (context, snapshot) {
+                                return FutureBuilder<List<StudentModel>>(
+                                  future: _getBatchStudents(),
+                                  builder: (context, studentsSnapshot) {
+                                    final batchStudents = studentsSnapshot.data ?? [];
+                                    final rollRange = snapshot.data ?? 'Loading...';
+
+                                    return Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.green.shade50,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: Colors.green.shade200),
                                       ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.info_outline,
+                                              color: Colors.green.shade700, size: 16),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              'Batch $_selectedBatch: ${batchStudents.length} students ($rollRange)',
+                                              style: TextStyle(
+                                                color: Colors.green.shade700,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
                             ),
                           ],
                         ],
@@ -438,52 +480,59 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            Column(
+                        FutureBuilder<List<StudentModel>>(
+                          future: _getBatchStudents(),
+                          builder: (context, snapshot) {
+                            final batchStudents = snapshot.data ?? [];
+
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
-                                Text(
-                                  '${batchStudents.length}',
-                                  style: const TextStyle(
-                                    fontSize: 32,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.blue,
-                                  ),
-                                ),
-                                Text(
-                                  widget.subject.isPractical ? 'Students in Batch' : 'Total Students',
-                                  style: const TextStyle(
-                                    color: Colors.blue,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
-                            ),
-                            if (widget.subject.isPractical) ...[
-                              Column(
-                                children: [
-                                  Text(
-                                    '${widget.classModel.students.length}',
-                                    style: const TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.grey,
+                                Column(
+                                  children: [
+                                    Text(
+                                      '${batchStudents.length}',
+                                      style: const TextStyle(
+                                        fontSize: 32,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.blue,
+                                      ),
                                     ),
-                                  ),
-                                  const Text(
-                                    'Total in Class',
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontWeight: FontWeight.w500,
+                                    Text(
+                                      widget.subject.isPractical ? 'Students in Batch' : 'Total Students',
+                                      style: const TextStyle(
+                                        color: Colors.blue,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      textAlign: TextAlign.center,
                                     ),
-                                    textAlign: TextAlign.center,
+                                  ],
+                                ),
+                                if (widget.subject.isPractical) ...[
+                                  Column(
+                                    children: [
+                                      Text(
+                                        '${widget.classModel.students.length}',
+                                        style: const TextStyle(
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                      const Text(
+                                        'Total in Class',
+                                        style: TextStyle(
+                                          color: Colors.grey,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ],
                                   ),
                                 ],
-                              ),
-                            ],
-                          ],
+                              ],
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -493,30 +542,37 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 const SizedBox(height: 20),
 
                 // Take Attendance Button
-                SizedBox(
-                  height: 60,
-                  child: ElevatedButton.icon(
-                    onPressed: batchStudents.isEmpty ? null : _navigateToAttendanceTaking,
-                    icon: const Icon(Icons.how_to_reg, size: 24),
-                    label: Text(
-                      widget.subject.isPractical
-                          ? 'Take Batch $_selectedBatch Attendance'
-                          : 'Take Attendance',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                FutureBuilder<List<StudentModel>>(
+                  future: _getBatchStudents(),
+                  builder: (context, snapshot) {
+                    final batchStudents = snapshot.data ?? [];
+
+                    return SizedBox(
+                      height: 60,
+                      child: ElevatedButton.icon(
+                        onPressed: batchStudents.isEmpty ? null : _navigateToAttendanceTaking,
+                        icon: const Icon(Icons.how_to_reg, size: 24),
+                        label: Text(
+                          widget.subject.isPractical
+                              ? 'Take Batch $_selectedBatch Attendance'
+                              : 'Take Attendance',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 2,
+                        ),
                       ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 2,
-                    ),
-                  ),
+                    );
+                  },
                 ),
 
                 const SizedBox(height: 16),
@@ -545,8 +601,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         const SizedBox(height: 8),
                         if (widget.subject.isPractical) ...[
                           const Text('• Select the batch for practical attendance'),
-                          const Text('• Each batch contains up to 25 students'),
+                          Text('• Each batch contains up to $_batchSize students (configurable)'),
                           const Text('• Students are automatically sorted by roll number'),
+                          const Text('• Use the settings button to change batch size'),
                         ] else ...[
                           const Text('• Attendance will be taken for all students'),
                           const Text('• You can filter students in groups of 10'),

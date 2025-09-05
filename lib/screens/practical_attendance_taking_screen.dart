@@ -35,8 +35,10 @@ class _PracticalAttendanceTakingScreenState extends State<PracticalAttendanceTak
   final Map<String, bool> _attendanceStatus = {};
   bool _isLoading = true;
   bool _isSaving = false;
-  int _currentFilter = 0; // 0 = All, 1 = 1-10, 2 = 11-20, etc.
+  int _currentFilter = 0; // 0 = All, 1 = 1-x, 2 = (x+1)-2x, etc.
   List<List<StudentModel>> _studentGroups = [];
+  int _batchSize = 25; // Dynamic batch size
+  int _filterSize = 10; // Size for filtering groups
 
   // Enhanced Animation Controllers
   late AnimationController _headerController;
@@ -55,6 +57,18 @@ class _PracticalAttendanceTakingScreenState extends State<PracticalAttendanceTak
   void initState() {
     super.initState();
     _initializeAnimations();
+    _loadBatchSettings();
+  }
+
+  Future<void> _loadBatchSettings() async {
+    final batchSize = await _repository.getBatchSize();
+    setState(() {
+      _batchSize = batchSize;
+      // Adjust filter size based on batch size for better UX
+      _filterSize = (batchSize / 2.5).ceil(); // Roughly 40% of batch size
+      if (_filterSize < 5) _filterSize = 5; // Minimum filter size
+      if (_filterSize > 15) _filterSize = 15; // Maximum filter size
+    });
     _initializeStudentGroups();
     _loadExistingAttendance();
   }
@@ -159,9 +173,9 @@ class _PracticalAttendanceTakingScreenState extends State<PracticalAttendanceTak
     // Add "All" as first group
     _studentGroups.add(sortedStudents);
 
-    // Group students into groups of 10
-    for (int i = 0; i < sortedStudents.length; i += 10) {
-      int endIndex = i + 10;
+    // Group students into groups based on dynamic filter size
+    for (int i = 0; i < sortedStudents.length; i += _filterSize) {
+      int endIndex = i + _filterSize;
       if (endIndex > sortedStudents.length) {
         endIndex = sortedStudents.length;
       }
@@ -510,7 +524,7 @@ class _PracticalAttendanceTakingScreenState extends State<PracticalAttendanceTak
                                       Icon(Icons.groups, color: Colors.white, size: 14),
                                       const SizedBox(width: 4),
                                       Text(
-                                        'Batch ${widget.batchNumber} of ${widget.totalBatches}',
+                                        'Batch ${widget.batchNumber} of ${widget.totalBatches} ($_batchSize students)',
                                         style: const TextStyle(
                                           color: Colors.white,
                                           fontWeight: FontWeight.bold,
@@ -558,7 +572,7 @@ class _PracticalAttendanceTakingScreenState extends State<PracticalAttendanceTak
             ),
 
             // Enhanced Filter Chips
-            if (widget.batchStudents.length > 10) ...[
+            if (widget.batchStudents.length > _filterSize) ...[
               ScaleTransition(
                 scale: _filterScaleAnimation,
                 child: Container(

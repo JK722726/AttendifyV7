@@ -8,6 +8,7 @@ class StorageService {
   // File names
   static const String _classesFileName = 'classes.json';
   static const String _attendanceFileName = 'attendance.json';
+  static const String _settingsFileName = 'settings.json';
 
   // Get the application documents directory
   Future<Directory> get _localPath async {
@@ -25,6 +26,12 @@ class StorageService {
   Future<File> get _attendanceFile async {
     final path = await _localPath;
     return File('${path.path}/$_attendanceFileName');
+  }
+
+  // Get settings file
+  Future<File> get _settingsFile async {
+    final path = await _localPath;
+    return File('${path.path}/$_settingsFileName');
   }
 
   // Load classes from storage
@@ -93,11 +100,72 @@ class StorageService {
     }
   }
 
+  // Load settings from storage
+  Future<Map<String, dynamic>> loadSettings() async {
+    try {
+      final file = await _settingsFile;
+      if (!await file.exists()) {
+        return {
+          'batchSize': 25, // Default batch size
+        };
+      }
+
+      final contents = await file.readAsString();
+      if (contents.isEmpty) {
+        return {
+          'batchSize': 25,
+        };
+      }
+
+      return Map<String, dynamic>.from(json.decode(contents));
+    } catch (e) {
+      print('Error loading settings: $e');
+      return {
+        'batchSize': 25,
+      };
+    }
+  }
+
+  // Save settings to storage
+  Future<void> saveSettings(Map<String, dynamic> settings) async {
+    try {
+      final file = await _settingsFile;
+      await file.writeAsString(json.encode(settings));
+    } catch (e) {
+      print('Error saving settings: $e');
+      throw Exception('Failed to save settings: $e');
+    }
+  }
+
+  // Get batch size setting
+  Future<int> getBatchSize() async {
+    try {
+      final settings = await loadSettings();
+      return settings['batchSize'] ?? 25;
+    } catch (e) {
+      print('Error getting batch size: $e');
+      return 25; // Default fallback
+    }
+  }
+
+  // Set batch size setting
+  Future<void> setBatchSize(int batchSize) async {
+    try {
+      final settings = await loadSettings();
+      settings['batchSize'] = batchSize;
+      await saveSettings(settings);
+    } catch (e) {
+      print('Error setting batch size: $e');
+      throw Exception('Failed to save batch size: $e');
+    }
+  }
+
   // Clear all data
   Future<void> clearAllData() async {
     try {
       final classesFile = await _classesFile;
       final attendanceFile = await _attendanceFile;
+      final settingsFile = await _settingsFile;
 
       if (await classesFile.exists()) {
         await classesFile.delete();
@@ -105,6 +173,10 @@ class StorageService {
 
       if (await attendanceFile.exists()) {
         await attendanceFile.delete();
+      }
+
+      if (await settingsFile.exists()) {
+        await settingsFile.delete();
       }
     } catch (e) {
       print('Error clearing data: $e');
@@ -128,18 +200,22 @@ class StorageService {
     try {
       final classesFile = await _classesFile;
       final attendanceFile = await _attendanceFile;
+      final settingsFile = await _settingsFile;
 
       final classesSize = await classesFile.exists() ? await classesFile.length() : 0;
       final attendanceSize = await attendanceFile.exists() ? await attendanceFile.length() : 0;
+      final settingsSize = await settingsFile.exists() ? await settingsFile.length() : 0;
 
       return {
         'classes': classesSize,
         'attendance': attendanceSize,
+        'settings': settingsSize,
       };
     } catch (e) {
       return {
         'classes': 0,
         'attendance': 0,
+        'settings': 0,
       };
     }
   }

@@ -13,6 +13,7 @@ import 'attendance_history_screen.dart';
 import 'student_dashboard_screen.dart';
 import 'subject_dashboard_screen.dart';
 import 'class_dashboard_screen.dart';
+import 'batch_settings_screen.dart';
 
 class ClassDetailScreen extends StatefulWidget {
   final ClassModel classModel;
@@ -29,6 +30,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen>
   final ExportService _exportService = ExportService();
   late ClassModel _currentClass;
   bool _isLoading = false;
+  int _batchSize = 25; // Dynamic batch size
 
   // Animation controllers
   late AnimationController _fadeController;
@@ -42,6 +44,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen>
   void initState() {
     super.initState();
     _currentClass = widget.classModel;
+    _loadBatchSize();
 
     // Initialize animation controllers
     _fadeController = AnimationController(
@@ -95,6 +98,15 @@ class _ClassDetailScreenState extends State<ClassDetailScreen>
     _slideController.dispose();
     _fabController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadBatchSize() async {
+    final batchSize = await _repository.getBatchSize();
+    if (mounted) {
+      setState(() {
+        _batchSize = batchSize;
+      });
+    }
   }
 
   Future<void> _refreshClassData() async {
@@ -272,6 +284,20 @@ class _ClassDetailScreenState extends State<ClassDetailScreen>
           SnackBar(content: Text('Error exporting data: $e')),
         );
       }
+    }
+  }
+
+  Future<void> _openBatchSettings() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const BatchSettingsScreen(),
+      ),
+    );
+
+    if (result == true) {
+      // Settings were changed, reload them
+      await _loadBatchSize();
     }
   }
 
@@ -508,7 +534,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen>
                                 icon: Icons.check_circle,
                                 title: 'Take Attendance',
                                 subtitle: subject.isPractical
-                                    ? 'Mark batch-wise attendance for this practical subject'
+                                    ? 'Mark batch-wise attendance for this practical subject ($_batchSize students per batch)'
                                     : 'Mark student attendance for this theory subject',
                                 color: Colors.blue,
                                 onTap: () {
@@ -526,6 +552,17 @@ class _ClassDetailScreenState extends State<ClassDetailScreen>
                                   _handleSubjectAction('history', subject);
                                 },
                               ),
+                              if (subject.isPractical)
+                                _buildActionTile(
+                                  icon: Icons.settings,
+                                  title: 'Batch Settings',
+                                  subtitle: 'Configure batch size for practical subjects',
+                                  color: Colors.teal,
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    _openBatchSettings();
+                                  },
+                                ),
                               _buildActionTile(
                                 icon: Icons.edit,
                                 title: 'Edit Subject',
@@ -995,7 +1032,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen>
   }
 
   Widget _buildSubjectCard(SubjectModel subject) {
-    final totalBatches = subject.isPractical ? _repository.calculateTotalBatches(_currentClass.students.length) : null;
+    final totalBatches = subject.isPractical ? (_currentClass.students.length / _batchSize).ceil() : null;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -1111,7 +1148,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen>
                       const SizedBox(height: 4),
                       Text(
                         subject.isPractical
-                            ? 'Batch-wise attendance (25 students each)'
+                            ? 'Batch-wise attendance ($_batchSize students each)'
                             : 'All students attendance',
                         style: const TextStyle(
                           fontSize: 12,
@@ -1315,78 +1352,114 @@ class _ClassDetailScreenState extends State<ClassDetailScreen>
               ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                child: Column(
                   children: [
-                    TweenAnimationBuilder(
-                      duration: const Duration(milliseconds: 800),
-                      tween: Tween<double>(begin: 0.0, end: 1.0),
-                      builder: (context, value, child) {
-                        return Transform.scale(
-                          scale: value,
-                          child: Column(
-                            children: [
-                              Text(
-                                '$theoryCount',
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.blue,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        TweenAnimationBuilder(
+                          duration: const Duration(milliseconds: 800),
+                          tween: Tween<double>(begin: 0.0, end: 1.0),
+                          builder: (context, value, child) {
+                            return Transform.scale(
+                              scale: value,
+                              child: Column(
+                                children: [
+                                  Text(
+                                    '$theoryCount',
+                                    style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text('Theory'),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                        TweenAnimationBuilder(
+                          duration: const Duration(milliseconds: 1000),
+                          tween: Tween<double>(begin: 0.0, end: 1.0),
+                          builder: (context, value, child) {
+                            return Transform.scale(
+                              scale: value,
+                              child: Column(
+                                children: [
+                                  Text(
+                                    '$practicalCount',
+                                    style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text('Practical'),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                        TweenAnimationBuilder(
+                          duration: const Duration(milliseconds: 1200),
+                          tween: Tween<double>(begin: 0.0, end: 1.0),
+                          builder: (context, value, child) {
+                            return Transform.scale(
+                              scale: value,
+                              child: Column(
+                                children: [
+                                  Text(
+                                    '${_currentClass.subjects.length}',
+                                    style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.purple,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text('Total'),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Batch Settings Button for practical subjects
+                    if (practicalCount > 0) ...[
+                      TweenAnimationBuilder(
+                        duration: const Duration(milliseconds: 1400),
+                        tween: Tween<double>(begin: 0.0, end: 1.0),
+                        builder: (context, value, child) {
+                          return Transform.scale(
+                            scale: value,
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: _openBatchSettings,
+                                icon: const Icon(Icons.settings, color: Colors.white),
+                                label: Text(
+                                  'Batch Settings ($_batchSize students per batch)',
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.teal,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  elevation: 4,
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              const Text('Theory'),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                    TweenAnimationBuilder(
-                      duration: const Duration(milliseconds: 1000),
-                      tween: Tween<double>(begin: 0.0, end: 1.0),
-                      builder: (context, value, child) {
-                        return Transform.scale(
-                          scale: value,
-                          child: Column(
-                            children: [
-                              Text(
-                                '$practicalCount',
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text('Practical'),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                    TweenAnimationBuilder(
-                      duration: const Duration(milliseconds: 1200),
-                      tween: Tween<double>(begin: 0.0, end: 1.0),
-                      builder: (context, value, child) {
-                        return Transform.scale(
-                          scale: value,
-                          child: Column(
-                            children: [
-                              Text(
-                                '${_currentClass.subjects.length}',
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.purple,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text('Total'),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),

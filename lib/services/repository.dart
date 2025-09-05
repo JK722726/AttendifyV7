@@ -235,6 +235,15 @@ class Repository {
     await _storageService.saveAttendance(attendance);
   }
 
+  // Settings Operations
+  Future<int> getBatchSize() async {
+    return await _storageService.getBatchSize();
+  }
+
+  Future<void> setBatchSize(int batchSize) async {
+    await _storageService.setBatchSize(batchSize);
+  }
+
   // Utility methods
   Future<void> clearAllData() async {
     await _storageService.clearAllData();
@@ -353,13 +362,16 @@ class Repository {
     };
   }
 
-  // Helper method to calculate total batches for a class
-  int calculateTotalBatches(int totalStudents) {
-    return (totalStudents / 25).ceil();
+  // Helper method to calculate total batches for a class using dynamic batch size
+  Future<int> calculateTotalBatches(int totalStudents) async {
+    final batchSize = await getBatchSize();
+    return (totalStudents / batchSize).ceil();
   }
 
-  // Get students for a specific batch
-  List<StudentModel> getStudentsForBatch(List<StudentModel> allStudents, int batchNumber) {
+  // Get students for a specific batch using dynamic batch size
+  Future<List<StudentModel>> getStudentsForBatch(List<StudentModel> allStudents, int batchNumber) async {
+    final batchSize = await getBatchSize();
+
     // Sort students by roll number first
     final sortedStudents = List<StudentModel>.from(allStudents);
     sortedStudents.sort((a, b) {
@@ -371,8 +383,8 @@ class Repository {
       return a.rollNumber.compareTo(b.rollNumber);
     });
 
-    int startIndex = (batchNumber - 1) * 25;
-    int endIndex = startIndex + 25;
+    int startIndex = (batchNumber - 1) * batchSize;
+    int endIndex = startIndex + batchSize;
     if (endIndex > sortedStudents.length) {
       endIndex = sortedStudents.length;
     }
